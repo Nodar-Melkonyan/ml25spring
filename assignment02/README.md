@@ -46,6 +46,10 @@
 
 გაირკვა, რომ სავარაუდო შეტევის დრო შეიძლება იყოს 2024-03-22 18:43:28, 2024-03-22 18:43:27 ან 2024-03-22 18:43:39.
 
+უფრო დაწვრილებით:
+
+https://github.com/Nodar-Melkonyan/ml25spring/blob/main/assignment02/DDoS-attack%20outliers.png
+
 მეტი თვალსაჩინოებისთვის გაეცანით ვიზუალურ მასალას
 
 ![DDoS Regression Plot] https://github.com/Nodar-Melkonyan/ml25spring/blob/main/assignment02/DDoS-attack%20detection.png
