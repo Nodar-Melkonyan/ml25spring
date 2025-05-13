@@ -1,0 +1,105 @@
+# ბიბლიოთეკები
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import LabelEncoder
+
+import tensorflow as tf
+import pandas as pd
+import numpy as np
+import ipaddress
+
+## გაწმენდა
+df = pd.read_csv('Darknet.csv')
+df.head()
+
+# ნაკლული მნიშვნელობების გამოვლენა
+null_counts = df.isnull().sum()
+null_counts[null_counts > 0].sort_values(ascending=False)
+
+# 158616-დან მხოლოდ 48 ყოფილა ნულოვანი. მიზანშეწონილია მათი წაშლა ნაკრებიდან
+df = df.dropna(subset=['Flow Bytes/s'])
+
+# იმისათვის, რომ მანქანური სწავლების მოდელს შეეძლოს ეფექტიანი მუშაობა, საჭიროა რიცხვითი მონაცემები
+# შევამოწმოთ, თუ რა ტიპისაა ნაკრების მონაცემები
+df.info()
+
+# როგორც ვხედავთ, ზოგიერთი სვეტი არარიცხვით მონაცემებს შეიცავს
+# გამოვასწოროთ ეს. დავიწყოთ IP-მისამართებით
+df['Src IP'] = df['Src IP'].apply(lambda x: int(ipaddress.ip_address(x)))
+df['Dst IP'] = df['Dst IP'].apply(lambda x: int(ipaddress.ip_address(x)))
+
+# გადავიყვანოთ წვდომის დრო datetime ფორმატში
+df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+
+# მიღებული შედეგი გავყოთ მილიარდზე, რათა ნანოწამებიდან მივიღოთ წამები და გავიმარტოვოთ მუშაობა
+df['Timestamp'] = df['Timestamp'].view('int64') // 10**9
+
+# რა თქმა უნდა, სტრიქონებს შეიცავს სამიზნე სვეტები (Label 1, Label 2). საჭიროა მათი გადაყვანაც
+label_encoder1 = LabelEncoder()
+df['Label 1'] = label_encoder1.fit_transform(df['Label 1'])
+
+label_encoder2 = LabelEncoder()
+df['Label 2'] = label_encoder2.fit_transform(df['Label 2'])
+
+# ამოვიღოთ პირველი მაიდენტიფიცირებელი სვეტიც
+
+df = df.drop(columns=['Flow ID'])
+
+# ამოვიღოთ, ასევე, უსასრული მნიშვნელობები, რომლებიც სკალირებისას პრობლემას შექმნიან
+
+pd.set_option('display.max_columns', None)
+pd.set_option('display.max_rows', None)
+
+# გამოვაჩინოთ ასეთი მნიშვნელობები
+np.isinf(df).sum().sort_values(ascending=False)
+
+# ამოვიღოთ
+df.replace([np.inf, -np.inf], np.nan, inplace=True)
+df.dropna(inplace=True)
+
+# შევამოწმოთ განახლებული მონაცემების ტიპები
+df.info()
+
+
+# იმის გამო, რომ მონაცემები საკმაოდ განსხვავდება დიაპაზონის მიხედვით, ალგორითმის უკეთესი მუშაობისთვის საჭიროა მათი ნორმალიზაცია
+# გამოვიყენოთ StandardScaler, რადგან ის ინარჩუნებს აუთლაიერებს, რომლებიც მონაცემთა თავისებურებებიდან გამომდინარე ბევრია ამ ნაკრებში
+
+scaler = StandardScaler()
+df_scaled = scaler.fit_transform(df)
+
+# სამიზნე მნიშვნელობების კომბინირება
+df['CombinedLabel'] = df['Label 1'].astype(str) + '-' + df['Label 2'].astype(str)
+label_encoder = LabelEncoder()
+combined_label_encoded = label_encoder.fit_transform(df['CombinedLabel'])
+
+# X-მნიშვნელობების გამოყოფა
+features = df.drop(['Label 1', 'Label 2', 'CombinedLabel'], axis=1)
+
+# დაყოფა
+X_train, X_test, y_train, y_test = train_test_split(features, combined_label_encoded, test_size=0.2, random_state=42)
+
+# მოდელის შექმნა
+model = tf.keras.Sequential([
+    tf.keras.layers.Dense(64, activation='relu', input_shape=(features.shape[1],)),
+    tf.keras.layers.Dense(32, activation='relu'),
+    tf.keras.layers.Dense(len(label_encoder.classes_), activation='softmax')
+])
+
+# კომპილირება
+model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+
+# გაწვრთნა
+model.fit(X_train, y_train, epochs=10, batch_size=32, validation_data=(X_test, y_test))
+
+# მოდელის სიზუსტის და დანაკრგის შეფასება
+loss, accuracy = model.evaluate(X_test, y_test)
+print(f'დანაკარგი: {loss:.4f}')
+print(f'სიზუსტე: {accuracy:.4f}')
+
+# ნაწინასწარმეტყველები და რეალური მნიშვნელობების შედარება
+predictions = model.predict(X_test)
+predicted_labels = label_encoder.inverse_transform(predictions.argmax(axis=1))
+print("ნაწინასწარმეტყველები:", predicted_labels[:20])
+print("რეალური:", label_encoder.inverse_transform(y_test[:20]))
