@@ -1,0 +1,269 @@
+# ბიბლიოთეკების გადმოწერა
+import tensorflow as tf
+from tensorflow.keras import layers, models
+from tensorflow.keras.datasets import cifar10
+import matplotlib.pyplot as plt
+import numpy as np
+from keras.models import Sequential
+from keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+import random
+import copy
+
+# მოდელის შექმნა და გაწვრთნა
+(x_train, y_train), (x_test, y_test) = cifar10.load_data()
+x_train, x_test = x_train / 255.0, x_test / 255.0
+y_train_cat = tf.keras.utils.to_categorical(y_train, 10)
+y_test_cat = tf.keras.utils.to_categorical(y_test, 10)
+
+model = Sequential([
+    Input(shape=(32, 32, 3)),
+    Conv2D(32, (3, 3), activation='relu', padding='same'),
+    MaxPooling2D((2, 2)),
+    Conv2D(64, (3, 3), activation='relu', padding='same'),
+    MaxPooling2D((2, 2)),
+    Conv2D(128, (3, 3), activation='relu', padding='same'),  # 🔥 Added layer
+    MaxPooling2D((2, 2)),
+    Flatten(),
+    Dense(128, activation='relu'),  # Increased size here
+    Dropout(0.5),
+    Dense(10, activation='softmax')
+])
+
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+history = model.fit(x_train, y_train_cat, epochs=10, validation_data=(x_test, y_test_cat))
+
+# სიზუსტე 80%-ს აღემატება
+
+# დავალება 1
+#პირველი შრის ფილტრების აგება
+def plot_filters_rgb(weights, title):
+    f_min, f_max = weights.min(), weights.max()
+    filters = (weights - f_min) / (f_max - f_min)
+    n_filters = filters.shape[-1]
+
+    fig, axes = plt.subplots(1, min(n_filters, 6), figsize=(15, 5))
+    for i in range(min(n_filters, 6)):
+        filter_img = filters[:, :, :, i]
+        axes[i].imshow(filter_img)
+        axes[i].axis('off')
+    plt.suptitle(title)
+    plt.show()
+plot_filters_rgb(first_layer_weights, "პირველი შრის ფილტრები (RGB)")
+
+    """
+    პირველი შრე ხედავს სურათების ყველაზე პრიმიტიულ ელემენტებს. მაგალითად, წითელი ფერი იმის მანიშნებელია, რომ ფილტრმა წითელი ფერის უბანი აღმოაჩინა სურათზე.
+    ლურჯ-მწვანე ფერების გვერდიგვერდ არსებობა მიუთითებს გადასვლას ერთი ფერიდან მეორეში
+    დიდი კონტრასტის მქონე მეზობელი ფერები შეიძლება მიუთითებდეს მათ შორის არსებულ კიდეზე
+    """
+
+#შუა შრის ფილტრების აგება
+def plot_all_channels_of_filter(weights, filter_index, title=""):
+    filter_weights = weights[:, :, :, filter_index]  # shape: (3, 3, in_channels)
+    num_channels = filter_weights.shape[-1]
+
+    cols = 8
+    rows = (num_channels + cols - 1) // cols
+
+    fig, axes = plt.subplots(rows, cols, figsize=(2 * cols, 2 * rows))
+    fig.suptitle(f"{title} — ფილტრი {filter_index} (ყველა შემავალი არხი)", fontsize=14)
+
+    for i in range(rows * cols):
+        ax = axes[i // cols, i % cols]
+        if i < num_channels:
+            f = filter_weights[:, :, i]
+            f = (f - np.min(f)) / (np.max(f) - np.min(f))  # Normalize
+            ax.imshow(f, cmap="inferno")
+        ax.axis('off')
+
+    plt.tight_layout()
+    plt.show()
+plot_all_channels_of_filter(middle_layer_weights, filter_index=0, title="შუა შრის ფილტრები")
+
+    """
+    მოყვითალო და უფრო ნათელი ფერები მიუთითებს იმაზე, რომ კონკრეტული ფილტრი ამ უბანს უფრო მეტ ყურადღებას ანიჭებს.
+    ხოლო მუქი — პირიქით.
+    """
+
+# დავალება 2
+# სითბური რუკი 6 რენდომული სურათისთვის
+random_indices = random.sample(range(len(x_test)), 6)
+images = x_test[random_indices]
+labels = y_test[random_indices]
+
+conv_layers = [layer for layer in model.layers if isinstance(layer, Conv2D)]
+
+all_activations = []
+
+for img in images:
+    img_batch = np.expand_dims(img, axis=0)
+    current_output = img_batch
+    activations = []
+    for layer in conv_layers:
+        current_output = layer(current_output)
+        activations.append(current_output.numpy())
+    all_activations.append(activations)
+
+
+
+fig, axes = plt.subplots(6, 6, figsize=(18, 15))
+
+for row, acts in enumerate(all_activations):
+    first_layer_acts = acts[0][0]
+    for col in range(6):
+        axes[row, col].imshow(first_layer_acts[:, :, col], cmap='viridis')
+        axes[row, col].axis('off')
+        if row == 0:
+            axes[row, col].set_title(f"რუკა {col}")
+
+plt.suptitle("სითბური რუკა: პირველი შრე 6 რენდომული სურათისთვის", fontsize=18)
+plt.tight_layout()
+plt.show()
+
+
+
+fig, axes = plt.subplots(6, 6, figsize=(18, 15))
+
+for row, acts in enumerate(all_activations):
+    second_layer_acts = acts[1][0]
+    for col in range(6):
+        axes[row, col].imshow(second_layer_acts[:, :, col], cmap='inferno')
+        axes[row, col].axis('off')
+        if row == 0:
+            axes[row, col].set_title(f"რუკა {col}")
+
+plt.suptitle("სითბური რუკა: მეორე შრე იმავე 6 რენდომული სურათისთვის", fontsize=18)
+plt.tight_layout()
+plt.show()
+
+#ორიგინალური სურათების მოდიფიკაცია და სითბური რუკების შედარება ორ ფილტრში
+import copy
+
+
+random_indices = random.sample(range(len(x_test)), 6)
+original_images = x_test[random_indices]
+
+modified_images = []
+for img in original_images:
+    mod = copy.deepcopy(img)
+    mod[10:22, 10:22, :] = 0
+    modified_images.append(mod)
+
+conv_layers = [layer for layer in model.layers if isinstance(layer, Conv2D)]
+
+def get_activations(imgs, conv_layers):
+    all_activations = []
+    for img in imgs:
+        img_batch = np.expand_dims(img, axis=0)
+        current_output = img_batch
+        acts = []
+        for layer in conv_layers:
+            current_output = layer(current_output)
+            acts.append(current_output.numpy())
+        all_activations.append(acts)
+    return all_activations
+
+original_acts = get_activations(original_images, conv_layers)
+modified_acts = get_activations(modified_images, conv_layers)
+
+
+
+fig, axes = plt.subplots(6, 14, figsize=(28, 15))
+
+for row in range(6):
+    axes[row, 0].imshow(original_images[row])
+    axes[row, 0].set_title("დედანი", fontsize=9)
+    axes[row, 0].axis('off')
+
+    axes[row, 1].imshow(modified_images[row])
+    axes[row, 1].set_title("შეცვლილი", fontsize=9)
+    axes[row, 1].axis('off')
+
+    orig_acts = original_acts[row][0][0]
+    mod_acts = modified_acts[row][0][0]
+
+    for i in range(6):
+        axes[row, i + 2].imshow(orig_acts[:, :, i], cmap='viridis')
+        axes[row, i + 2].axis('off')
+        if row == 0:
+            axes[row, i + 2].set_title(f"დედნის რუკა {i+1}", fontsize=9)
+
+        axes[row, i + 8].imshow(mod_acts[:, :, i], cmap='viridis')
+        axes[row, i + 8].axis('off')
+        if row == 0:
+            axes[row, i + 8].set_title(f"შეცვლილის რუკა {i+1}", fontsize=9)
+
+plt.suptitle("პირველი შრე: დედანი, შეცვლილი სურათი და მათი სითბური რუკები", fontsize=18)
+plt.tight_layout()
+plt.show()
+
+
+fig, axes = plt.subplots(6, 14, figsize=(28, 15))
+
+for row in range(6):
+    axes[row, 0].imshow(original_images[row])
+    axes[row, 0].set_title("დედანი", fontsize=9)
+    axes[row, 0].axis('off')
+
+    axes[row, 1].imshow(modified_images[row])
+    axes[row, 1].set_title("შეცვლილი", fontsize=9)
+    axes[row, 1].axis('off')
+
+    orig_acts = original_acts[row][1][0]
+    mod_acts = modified_acts[row][1][0]
+
+    for i in range(6):
+        axes[row, i + 2].imshow(orig_acts[:, :, i], cmap='inferno')
+        axes[row, i + 2].axis('off')
+        if row == 0:
+            axes[row, i + 2].set_title(f"დედნის რუკა {i+1}", fontsize=9)
+
+        axes[row, i + 8].imshow(mod_acts[:, :, i], cmap='inferno')
+        axes[row, i + 8].axis('off')
+        if row == 0:
+            axes[row, i + 8].set_title(f"შეცვლილის რუკა {i+1}", fontsize=9)
+
+plt.suptitle("მეორე შრე: დედანი, შეცვლილი სურათი და მათი სითბური რუკები", fontsize=18)
+plt.tight_layout()
+plt.show()
+
+
+# დავალება 3
+
+idx = 0
+while True:
+    img = x_test[idx:idx+1]
+    true_label = np.argmax(y_test_cat[idx])
+    pred_label = np.argmax(model.predict(img))
+    if true_label == pred_label:
+        break
+    idx += 1
+
+print(f"Original index: {idx}, True Label: {true_label}, Predicted: {pred_label}")
+
+
+epsilon = 0.15
+noise = np.random.normal(loc=0.0, scale=1.0, size=img.shape)
+adv_img = img + epsilon * noise
+adv_img = np.clip(adv_img, 0, 1)
+
+adv_pred = np.argmax(model.predict(adv_img))
+
+plt.figure(figsize=(8, 4))
+
+plt.subplot(1, 2, 1)
+plt.imshow(img[0])
+plt.title(f"დედანი (Pred: {pred_label})")
+plt.axis('off')
+
+plt.subplot(1, 2, 2)
+plt.imshow(adv_img[0])
+plt.title(f"შეცვლილი (Pred: {adv_pred})")
+plt.axis('off')
+
+plt.suptitle("ქსელის მოტყუება")
+plt.show()
+
+if adv_pred != true_label:
+    print(f"მოდელი მოტყუვდა: True Label = {true_label}, New Prediction = {adv_pred}")
+else:
+    print(f"მოდელი სწორად კლასიფიცირებს სურათებს.")
